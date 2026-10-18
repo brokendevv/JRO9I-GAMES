@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" width="640" height="480">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#071318"/>
+      <stop offset="100%" stop-color="#112229"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="480" fill="url(#bg)"/>
+  <!-- Winding Tactical Road -->
+  <path d="M 0 240 Q 160 120 320 240 T 640 240" fill="none" stroke="#1E293B" stroke-width="58" stroke-linecap="round"/>
+  <path d="M 0 240 Q 160 120 320 240 T 640 240" fill="none" stroke="#334155" stroke-width="4" stroke-dasharray="14 12"/>
+  <!-- Defense Turrets -->
+  <g transform="translate(175, 290)">
+    <circle cx="0" cy="0" r="32" fill="#0F172A" stroke="#10B981" stroke-width="3"/>
+    <circle cx="0" cy="0" r="14" fill="#10B981"/>
+    <line x1="0" y1="0" x2="26" y2="-45" stroke="#34D399" stroke-width="6" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(465, 170)">
+    <circle cx="0" cy="0" r="32" fill="#0F172A" stroke="#F59E0B" stroke-width="3"/>
+    <circle cx="0" cy="0" r="14" fill="#F59E0B"/>
+    <line x1="0" y1="0" x2="-28" y2="48" stroke="#FBBF24" stroke-width="6" stroke-linecap="round"/>
+  </g>
+  <!-- Laser Beam & Enemies -->
+  <line x1="201" y1="245" x2="275" y2="205" stroke="#34D399" stroke-width="3" stroke-dasharray="6 4"/>
+  <circle cx="275" cy="205" r="16" fill="#EF4444" stroke="#FCA5A5" stroke-width="3"/>
+  <circle cx="385" cy="272" r="20" fill="#DC2626" stroke="#FCA5A5" stroke-width="3"/>
+</svg>

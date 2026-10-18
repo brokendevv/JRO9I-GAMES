@@ -1,0 +1,6 @@
+{
+  "name": "JRO9I Games",
+  "description": "Poki-inspired browser gaming portal and local AI Game Studio with automated GitHub Pages publishing and validation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

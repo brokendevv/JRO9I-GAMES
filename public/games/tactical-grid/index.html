@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tactical Grid: Pulse</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body { background: #090D16; color: #F8FAFC; font-family: system-ui, sans-serif; width: 100vw; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+    #topbar { display: flex; gap: 28px; margin-bottom: 18px; align-items: center; background: #0F172A; border: 1px solid rgba(56, 189, 248, 0.3); padding: 10px 24px; border-radius: 12px; }
+    .metric { display: flex; flex-direction: column; }
+    .kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #94A3B8; }
+    .val { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; color: #38BDF8; }
+    #board { display: grid; grid-template-columns: repeat(6, 56px); grid-template-rows: repeat(6, 56px); gap: 6px; background: #0F172A; padding: 14px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.1); }
+    .cell { width: 56px; height: 56px; border-radius: 8px; background: #1E293B; border: 1px solid rgba(255,255,255,0.06); cursor: pointer; transition: transform 0.1s ease, background 0.15s ease; }
+    .cell:hover { border-color: #38BDF8; transform: scale(1.04); }
+    .cell.filled { background: #0284C7; border-color: #38BDF8; }
+    #dock { display: flex; gap: 14px; margin-top: 18px; }
+    .piece-btn { background: #0F172A; border: 2px solid #334155; color: #F8FAFC; padding: 10px 18px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 13px; }
+    .piece-btn.active { border-color: #F59E0B; color: #F59E0B; }
+    #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(9, 13, 22, 0.88); z-index: 20; }
+    body[data-state="playing"] #overlay { display: none; }
+    .modal { background: #0F172A; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 16px; padding: 34px 40px; text-align: center; max-width: 420px; }
+    .modal h1 { font-size: 28px; margin-bottom: 10px; }
+    .modal p { font-size: 14px; color: #94A3B8; margin-bottom: 22px; line-height: 1.5; }
+    .cta-btn { background: #38BDF8; color: #090D16; border: none; padding: 12px 28px; border-radius: 10px; font-weight: 800; cursor: pointer; }
+  </style>
+</head>
+<body data-state="title">
+  <div id="topbar">
+    <div class="metric"><span class="kicker">SCORE</span><span id="score-val" class="val">0</span></div>
+    <div class="metric"><span class="kicker">LINES CLEARED</span><span id="lines-val" class="val">0</span></div>
+    <button id="reset-btn" class="piece-btn">Restart [R]</button>
+  </div>
+  <div id="board" role="grid" aria-label="Tactical Matrix"></div>
+  <div id="dock">
+    <button class="piece-btn active" data-shape="0">Conduit L-Block [1]</button>
+    <button class="piece-btn" data-shape="1">Dual Line [2]</button>
+    <button class="piece-btn" data-shape="2">Pulse Node [3]</button>
+  </div>
+  <div id="overlay">
+    <div class="modal">
+      <h1>Tactical Grid: Pulse</h1>
+      <p>Select an energy conduit from the dock and lock it onto the 6x6 matrix. Complete full horizontal or vertical rows to discharge power and score combos.</p>
+      <button id="start-btn" class="cta-btn" data-start="true">Start Matrix</button>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const boardEl = document.getElementById('board');
+      const scoreEl = document.getElementById('score-val');
+      const linesEl = document.getElementById('lines-val');
+      const startBtn = document.getElementById('start-btn');
+      const resetBtn = document.getElementById('reset-btn');
+      const shapeBtns = Array.from(document.querySelectorAll('[data-shape]'));
+
+      const SHAPES = [
+        [[0, 0], [1, 0], [0, 1]],
+        [[0, 0], [0, 1]],
+        [[0, 0]]
+      ];
+      let selectedShape = 0;
+      let score = 0;
+      let lines = 0;
+      const grid = Array.from({ length: 6 }, () => Array(6).fill(0));
+
+      function renderBoard() {
+        boardEl.innerHTML = '';
+        for (let r = 0; r < 6; r++) {
+          for (let c = 0; c < 6; c++) {
+            const btn = document.createElement('button');
+            btn.className = 'cell' + (grid[r][c] ? ' filled' : '');
+            btn.setAttribute('aria-label', `Row ${r + 1} Column ${c + 1}`);
+            btn.addEventListener('click', () => placeShape(r, c));
+            boardEl.appendChild(btn);
+          }
+        }
+        scoreEl.textContent = String(score);
+        linesEl.textContent = String(lines);
+      }
+
+      function placeShape(r, c) {
+        const coords = SHAPES[selectedShape];
+        for (const [dr, dc] of coords) {
+          const nr = r + dr, nc = c + dc;
+          if (nr >= 6 || nc >= 6 || grid[nr][nc]) return;
+        }
+        for (const [dr, dc] of coords) {
+          grid[r + dr][c + dc] = 1;
+        }
+        score += coords.length * 15;
+
+        // Check full rows and cols
+        const fullRows = [];
+        const fullCols = [];
+        for (let i = 0; i < 6; i++) {
+          if (grid[i].every((v) => v === 1)) fullRows.push(i);
+          if (grid.every((row) => row[i] === 1)) fullCols.push(i);
+        }
+        for (const ri of fullRows) for (let c2 = 0; c2 < 6; c2++) grid[ri][c2] = 0;
+        for (const ci of fullCols) for (let r2 = 0; r2 < 6; r2++) grid[r2][ci] = 0;
+
+        const cleared = fullRows.length + fullCols.length;
+        if (cleared > 0) {
+          lines += cleared;
+          score += cleared * 120;
+        }
+        renderBoard();
+      }
+
+      function startGame() {
+        document.body.dataset.state = 'playing';
+        score = 0;
+        lines = 0;
+        for (let r = 0; r < 6; r++) grid[r].fill(0);
+        renderBoard();
+      }
+
+      shapeBtns.forEach((btn, idx) => {
+        btn.addEventListener('click', () => {
+          selectedShape = idx;
+          shapeBtns.forEach((b, i) => b.classList.toggle('active', i === idx));
+        });
+      });
+
+      startBtn.addEventListener('click', startGame);
+      resetBtn.addEventListener('click', startGame);
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Digit1') shapeBtns[0].click();
+        if (e.code === 'Digit2') shapeBtns[1].click();
+        if (e.code === 'Digit3') shapeBtns[2].click();
+        if (e.code === 'KeyR') startGame();
+        if (document.body.dataset.state === 'title' && (e.code === 'Enter' || e.code === 'Space')) startGame();
+      });
+
+      if (new URLSearchParams(window.location.search).get('autostart') === '1') startGame();
+      else renderBoard();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" width="640" height="480">
+  <defs>
+    <linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="60%">
+      <stop offset="0%" stop-color="#090D16"/>
+      <stop offset="65%" stop-color="#31102F"/>
+      <stop offset="100%" stop-color="#F97316"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0%" y1="55%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E1B4B"/>
+      <stop offset="100%" stop-color="#070A12"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="270" fill="url(#sky)"/>
+  <circle cx="320" cy="245" r="88" fill="#F59E0B" fill-opacity="0.85"/>
+  <rect width="640" y="265" height="215" fill="url(#ground)"/>
+  <!-- Perspective 3D Grid Lines -->
+  <g stroke="#F97316" stroke-opacity="0.45" stroke-width="2">
+    <line x1="320" y1="265" x2="-120" y2="480"/>
+    <line x1="320" y1="265" x2="60" y2="480"/>
+    <line x1="320" y1="265" x2="200" y2="480"/>
+    <line x1="320" y1="265" x2="320" y2="480"/>
+    <line x1="320" y1="265" x2="440" y2="480"/>
+    <line x1="320" y1="265" x2="580" y2="480"/>
+    <line x1="320" y1="265" x2="760" y2="480"/>
+    <line x1="0" y1="295" x2="640" y2="295"/>
+    <line x1="0" y1="335" x2="640" y2="335"/>
+    <line x1="0" y1="390" x2="640" y2="390"/>
+    <line x1="0" y1="455" x2="640" y2="455"/>
+  </g>
+  <!-- Low-poly 3D Speeder -->
+  <g transform="translate(320, 368)">
+    <polygon points="0,-46 74,24 38,36 0,20 -38,36 -74,24" fill="#F8FAFC" stroke="#F97316" stroke-width="3"/>
+    <polygon points="0,-46 28,12 -28,12" fill="#0EA5E9"/>
+    <rect x="-42" y="24" width="24" height="8" rx="3" fill="#F59E0B"/>
+    <rect x="18" y="24" width="24" height="8" rx="3" fill="#F59E0B"/>
+  </g>
+</svg>

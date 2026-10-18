@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Citadel Bastion Defense</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body { background: #071318; color: #F8FAFC; font-family: system-ui, sans-serif; overflow: hidden; width: 100vw; height: 100vh; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    #hud { position: fixed; top: 16px; left: 20px; right: 20px; display: flex; justify-content: space-between; pointer-events: none; z-index: 10; }
+    .cluster { background: rgba(11, 22, 28, 0.88); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 10px; padding: 10px 18px; display: flex; gap: 22px; pointer-events: auto; }
+    .metric { display: flex; flex-direction: column; }
+    .kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #94A3B8; }
+    .val { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; color: #10B981; }
+    #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(7, 19, 24, 0.86); z-index: 20; }
+    body[data-state="playing"] #overlay { display: none; }
+    .modal { background: #0F172A; border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 16px; padding: 34px 40px; text-align: center; max-width: 440px; }
+    .modal h1 { font-size: 28px; margin-bottom: 10px; }
+    .modal p { font-size: 14px; color: #94A3B8; margin-bottom: 22px; line-height: 1.5; }
+    .cta-btn { background: #10B981; color: #071318; border: none; padding: 12px 28px; border-radius: 10px; font-weight: 800; cursor: pointer; }
+  </style>
+</head>
+<body data-state="title">
+  <div id="hud">
+    <div class="cluster">
+      <div class="metric"><span class="kicker">GOLD</span><span id="gold-val" class="val">150</span></div>
+      <div class="metric"><span class="kicker">WAVE</span><span id="wave-val" class="val">1</span></div>
+      <div class="metric"><span class="kicker">BASTION HP</span><span id="hp-val" class="val">20</span></div>
+    </div>
+    <div class="cluster">
+      <span class="kicker" style="align-self:center">CLICK GREEN SOCKETS TO BUILD PULSE TURRET (50 GOLD)</span>
+    </div>
+  </div>
+  <div id="overlay">
+    <div class="modal">
+      <h1 id="modal-title">Citadel Bastion Defense</h1>
+      <p>Construct arcane pulse turrets on tactical sockets along the canyon road to stop incoming Golem and Swarmer waves before they breach the Citadel.</p>
+      <button id="start-btn" class="cta-btn" data-start="true">Defend Bastion</button>
+    </div>
+  </div>
+  <canvas id="canvas"></canvas>
+  <script>
+    (() => {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      const goldEl = document.getElementById('gold-val');
+      const waveEl = document.getElementById('wave-val');
+      const hpEl = document.getElementById('hp-val');
+      const startBtn = document.getElementById('start-btn');
+      const modalTitle = document.getElementById('modal-title');
+
+      const isHeadless = navigator.webdriver || /HeadlessChrome/i.test(navigator.userAgent);
+      let W = window.innerWidth || 960;
+      let H = window.innerHeight || 540;
+      function resize() { W = window.innerWidth || 960; H = window.innerHeight || 540; canvas.width = W; canvas.height = H; }
+      window.addEventListener('resize', resize);
+      resize();
+
+      let state = 'title';
+      let gold = 150;
+      let wave = 1;
+      let hp = 20;
+
+      const sockets = [
+        { rx: 0.25, ry: 0.36, turret: true },
+        { rx: 0.45, ry: 0.64, turret: false },
+        { rx: 0.65, ry: 0.36, turret: false },
+        { rx: 0.80, ry: 0.64, turret: false }
+      ];
+      const enemies = [];
+      const beams = [];
+
+      function spawnWave() {
+        for (let i = 0; i < 4 + wave * 2; i++) {
+          enemies.push({
+            progress: -i * 0.08,
+            hp: 35 + wave * 18,
+            maxHp: 35 + wave * 18,
+            speed: 0.09 + (i % 2) * 0.03
+          });
+        }
+      }
+
+      function startGame() {
+        state = 'playing';
+        document.body.dataset.state = 'playing';
+        gold = 150;
+        wave = 1;
+        hp = 20;
+        sockets.forEach((s, idx) => (s.turret = idx === 0));
+        enemies.length = 0;
+        spawnWave();
+        startBtn.blur();
+      }
+
+      canvas.addEventListener('click', (e) => {
+        if (state !== 'playing') return;
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        for (const s of sockets) {
+          const sx = s.rx * W, sy = s.ry * H;
+          if (!s.turret && Math.hypot(mx - sx, my - sy) < 32 && gold >= 50) {
+            gold -= 50;
+            s.turret = true;
+          }
+        }
+      });
+
+      startBtn.addEventListener('click', startGame);
+      if (new URLSearchParams(window.location.search).get('autostart') === '1') startGame();
+
+      let fireTimer = 0;
+      let last = performance.now();
+      function loop(now) {
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+
+        if (state === 'playing') {
+          fireTimer += dt;
+          for (let i = enemies.length - 1; i >= 0; i--) {
+            const en = enemies[i];
+            en.progress += en.speed * dt;
+            if (en.progress >= 1) {
+              hp = Math.max(0, hp - 1);
+              enemies.splice(i, 1);
+              if (hp <= 0) {
+                state = 'gameover';
+                document.body.dataset.state = 'gameover';
+                modalTitle.textContent = 'Bastion Fallen — Wave ' + wave;
+                startBtn.textContent = 'Try Again';
+              }
+            }
+          }
+
+          if (fireTimer >= 0.45) {
+            fireTimer = 0;
+            for (const s of sockets) {
+              if (!s.turret) continue;
+              const sx = s.rx * W, sy = s.ry * H;
+              const target = enemies.find((en) => en.progress > 0 && Math.hypot(en.progress * W - sx, H * 0.5 - sy) < 260);
+              if (target) {
+                target.hp -= 22;
+                beams.push({ x1: sx, y1: sy, x2: target.progress * W, y2: H * 0.5, life: 0.15 });
+                if (target.hp <= 0) {
+                  gold += 25;
+                  const idx = enemies.indexOf(target);
+                  if (idx >= 0) enemies.splice(idx, 1);
+                }
+              }
+            }
+          }
+
+          if (enemies.length === 0 && state === 'playing') {
+            wave += 1;
+            spawnWave();
+          }
+
+          goldEl.textContent = String(gold);
+          waveEl.textContent = String(wave);
+          hpEl.textContent = String(hp);
+        }
+
+        ctx.fillStyle = '#071318';
+        ctx.fillRect(0, 0, W, H);
+
+        // Road
+        ctx.strokeStyle = '#1E293B';
+        ctx.lineWidth = 54;
+        ctx.beginPath();
+        ctx.moveTo(0, H * 0.5);
+        ctx.lineTo(W, H * 0.5);
+        ctx.stroke();
+
+        // Sockets & Turrets
+        for (const s of sockets) {
+          const sx = s.rx * W, sy = s.ry * H;
+          ctx.beginPath();
+          ctx.arc(sx, sy, 24, 0, Math.PI * 2);
+          ctx.fillStyle = s.turret ? '#10B981' : '#0F172A';
+          ctx.strokeStyle = '#10B981';
+          ctx.lineWidth = 3;
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        // Enemies
+        for (const en of enemies) {
+          if (en.progress < 0) continue;
+          const ex = en.progress * W, ey = H * 0.5;
+          ctx.fillStyle = '#EF4444';
+          ctx.beginPath();
+          ctx.arc(ex, ey, 16, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Beams
+        for (let i = beams.length - 1; i >= 0; i--) {
+          const b = beams[i];
+          b.life -= dt;
+          ctx.strokeStyle = '#34D399';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(b.x1, b.y1);
+          ctx.lineTo(b.x2, b.y2);
+          ctx.stroke();
+          if (b.life <= 0) beams.splice(i, 1);
+        }
+
+        if (isHeadless) setTimeout(() => requestAnimationFrame(loop), 60);
+        else requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+    })();
+  </script>
+</body>
+</html>

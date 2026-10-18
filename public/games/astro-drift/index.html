@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Astro Drift: Sector Zero</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      background: #070B14;
+      color: #F8FAFC;
+      font-family: system-ui, -apple-system, sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    #hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      padding: 20px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      z-index: 10;
+    }
+    .cluster {
+      background: rgba(9, 13, 22, 0.85);
+      border: 1px solid rgba(245, 158, 11, 0.32);
+      border-radius: 10px;
+      padding: 10px 16px;
+      display: flex;
+      gap: 22px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+    }
+    .metric { display: flex; flex-direction: column; }
+    .kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #94A3B8; }
+    .val { font-size: 26px; font-weight: 800; color: #F8FAFC; font-variant-numeric: tabular-nums; }
+    .val.amber { color: #F59E0B; }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(7, 11, 20, 0.84);
+      z-index: 20;
+    }
+    body[data-state="playing"] #overlay { display: none; }
+    .modal {
+      background: #0F172A;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      border-radius: 16px;
+      padding: 36px 44px;
+      text-align: center;
+      max-width: 440px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+    }
+    .modal h1 { font-size: 30px; font-weight: 800; margin: 14px 0 8px; letter-spacing: -0.02em; }
+    .modal p { font-size: 14px; color: #94A3B8; line-height: 1.55; margin-bottom: 24px; }
+    .cta-btn {
+      background: #F59E0B;
+      color: #090D16;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 32px;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .cta-btn:hover { background: #FBBF24; }
+    .hint { margin-top: 18px; font-size: 12px; color: #64748B; }
+  </style>
+</head>
+<body data-state="title">
+  <div id="hud">
+    <div class="cluster">
+      <div class="metric">
+        <span class="kicker">SCORE</span>
+        <span id="score-val" class="val amber">0</span>
+      </div>
+      <div class="metric">
+        <span class="kicker">SECTOR</span>
+        <span id="wave-val" class="val">1</span>
+      </div>
+    </div>
+    <div class="cluster">
+      <div class="metric">
+        <span class="kicker">SHIELD HULL</span>
+        <span id="hp-val" class="val">100</span>
+      </div>
+      <div class="metric">
+        <span class="kicker">DASH</span>
+        <span id="dash-val" class="val amber">READY</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="overlay">
+    <div class="modal">
+      <svg viewBox="0 0 80 80" width="60" height="60" aria-hidden="true">
+        <polygon points="40,8 70,66 40,52 10,66" fill="#F59E0B" stroke="#FEF3C7" stroke-width="2.5"/>
+        <circle cx="40" cy="40" r="8" fill="#0EA5E9"/>
+      </svg>
+      <h1 id="modal-title">Astro Drift: Sector Zero</h1>
+      <p id="modal-desc">Pilot your thrust-vectored interceptor through the asteroid belt. Blast meteors into plasma shards and phase-dash through lethal waves.</p>
+      <button id="start-btn" class="cta-btn" data-start="true">Launch Interceptor</button>
+      <div class="hint">WASD / Arrows Move · Space Fire · Shift Phase Dash · P Pause</div>
+    </div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <script>
+    (() => {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      const scoreEl = document.getElementById('score-val');
+      const waveEl = document.getElementById('wave-val');
+      const hpEl = document.getElementById('hp-val');
+      const dashEl = document.getElementById('dash-val');
+      const startBtn = document.getElementById('start-btn');
+      const modalTitle = document.getElementById('modal-title');
+      const modalDesc = document.getElementById('modal-desc');
+
+      const isHeadless = navigator.webdriver || /HeadlessChrome/i.test(navigator.userAgent);
+      let W = window.innerWidth || 960;
+      let H = window.innerHeight || 540;
+      function resize() {
+        W = window.innerWidth || 960;
+        H = window.innerHeight || 540;
+        canvas.width = W;
+        canvas.height = H;
+      }
+      window.addEventListener('resize', resize);
+      resize();
+
+      // Web Audio Synth
+      let audioCtx = null;
+      function beep(freq, dur, type = 'triangle', gainVal = 0.06) {
+        try {
+          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+          gain.gain.setValueAtTime(gainVal, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start();
+          osc.stop(audioCtx.currentTime + dur);
+        } catch {}
+      }
+
+      let state = 'title';
+      let score = 0;
+      let bestScore = 0;
+      let sector = 1;
+      let hp = 100;
+      let hitstop = 0;
+
+      const ship = { x: W / 2, y: H / 2, vx: 0, vy: 0, angle: -Math.PI / 2, fireCd: 0, dashCd: 0, invuln: 0 };
+      const bullets = [];
+      const rocks = [];
+      const particles = Array.from({ length: 80 }, () => ({ active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, color: '#F59E0B' }));
+      const keys = new Set();
+
+      function spawnParticle(x, y, color) {
+        const p = particles.find((item) => !item.active);
+        if (!p) return;
+        const a = Math.random() * Math.PI * 2;
+        const s = 40 + Math.random() * 160;
+        p.active = true;
+        p.x = x;
+        p.y = y;
+        p.vx = Math.cos(a) * s;
+        p.vy = Math.sin(a) * s;
+        p.life = 0.35 + Math.random() * 0.25;
+        p.color = color;
+      }
+
+      function spawnSectorRocks(count) {
+        for (let i = 0; i < count; i++) {
+          const edge = i % 4;
+          const x = edge === 0 ? 30 : edge === 1 ? W - 30 : Math.random() * W;
+          const y = edge === 2 ? 30 : edge === 3 ? H - 30 : Math.random() * H;
+          const a = Math.random() * Math.PI * 2;
+          const spd = 55 + Math.random() * 75 + sector * 12;
+          rocks.push({
+            x, y,
+            vx: Math.cos(a) * spd,
+            vy: Math.sin(a) * spd,
+            r: 26 + Math.random() * 14,
+            hp: 2
+          });
+        }
+      }
+
+      function startGame() {
+        if (state === 'paused') {
+          state = 'playing';
+          document.body.dataset.state = 'playing';
+          startBtn.blur();
+          return;
+        }
+        state = 'playing';
+        document.body.dataset.state = 'playing';
+        score = 0;
+        sector = 1;
+        hp = 100;
+        ship.x = W / 2;
+        ship.y = H / 2;
+        ship.vx = 0;
+        ship.vy = 0;
+        ship.invuln = 1.5;
+        bullets.length = 0;
+        rocks.length = 0;
+        spawnSectorRocks(5);
+        startBtn.blur();
+        beep(440, 0.12, 'sine');
+      }
+
+      startBtn.addEventListener('click', startGame);
+      window.addEventListener('keydown', (e) => {
+        keys.add(e.code);
+        if ((state === 'title' || state === 'gameover') && (e.code === 'Enter' || e.code === 'Space')) {
+          e.preventDefault();
+          startGame();
+        } else if (e.code === 'KeyP' || e.code === 'Escape') {
+          if (state === 'playing') {
+            state = 'paused';
+            document.body.dataset.state = 'paused';
+            modalTitle.textContent = 'Interceptor Paused';
+            modalDesc.textContent = 'Systems on standby. Current score: ' + score;
+            startBtn.textContent = 'Resume Flight';
+          } else if (state === 'paused') {
+            startGame();
+          }
+        }
+      });
+      window.addEventListener('keyup', (e) => keys.delete(e.code));
+      window.addEventListener('blur', () => keys.clear());
+
+      if (new URLSearchParams(window.location.search).get('autostart') === '1') {
+        startGame();
+      } else {
+        spawnSectorRocks(4);
+      }
+
+      let last = performance.now();
+      function frame(now) {
+        const rawDt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+
+        if (hitstop > 0) {
+          hitstop -= rawDt;
+        } else if (state === 'playing') {
+          const turnSpeed = 4.2;
+          if (keys.has('KeyA') || keys.has('ArrowLeft')) ship.angle -= turnSpeed * rawDt;
+          if (keys.has('KeyD') || keys.has('ArrowRight')) ship.angle += turnSpeed * rawDt;
+          if (keys.has('KeyW') || keys.has('ArrowUp')) {
+            ship.vx += Math.cos(ship.angle) * 340 * rawDt;
+            ship.vy += Math.sin(ship.angle) * 340 * rawDt;
+            spawnParticle(ship.x - Math.cos(ship.angle) * 18, ship.y - Math.sin(ship.angle) * 18, '#F59E0B');
+          }
+          if (keys.has('KeyS') || keys.has('ArrowDown')) {
+            ship.vx *= 0.94;
+            ship.vy *= 0.94;
+          }
+
+          ship.dashCd = Math.max(0, ship.dashCd - rawDt);
+          ship.invuln = Math.max(0, ship.invuln - rawDt);
+          if ((keys.has('ShiftLeft') || keys.has('ShiftRight')) && ship.dashCd <= 0) {
+            ship.vx = Math.cos(ship.angle) * 520;
+            ship.vy = Math.sin(ship.angle) * 520;
+            ship.dashCd = 2.0;
+            ship.invuln = 0.55;
+            beep(660, 0.1, 'triangle');
+          }
+
+          ship.vx *= 0.985;
+          ship.vy *= 0.985;
+          ship.x = (ship.x + ship.vx * rawDt + W) % W;
+          ship.y = (ship.y + ship.vy * rawDt + H) % H;
+
+          ship.fireCd = Math.max(0, ship.fireCd - rawDt);
+          if (keys.has('Space') && ship.fireCd <= 0) {
+            ship.fireCd = 0.16;
+            bullets.push({
+              x: ship.x + Math.cos(ship.angle) * 20,
+              y: ship.y + Math.sin(ship.angle) * 20,
+              vx: Math.cos(ship.angle) * 640 + ship.vx * 0.3,
+              vy: Math.sin(ship.angle) * 640 + ship.vy * 0.3,
+              life: 0.95
+            });
+            beep(520, 0.06, 'sawtooth', 0.04);
+          }
+
+          for (let i = bullets.length - 1; i >= 0; i--) {
+            const b = bullets[i];
+            b.x = (b.x + b.vx * rawDt + W) % W;
+            b.y = (b.y + b.vy * rawDt + H) % H;
+            b.life -= rawDt;
+            if (b.life <= 0) bullets.splice(i, 1);
+          }
+
+          for (let i = rocks.length - 1; i >= 0; i--) {
+            const r = rocks[i];
+            r.x = (r.x + r.vx * rawDt + W) % W;
+            r.y = (r.y + r.vy * rawDt + H) % H;
+
+            // Check bullet hits
+            let destroyed = false;
+            for (let j = bullets.length - 1; j >= 0; j--) {
+              const b = bullets[j];
+              if (Math.hypot(r.x - b.x, r.y - b.y) < r.r + 5) {
+                bullets.splice(j, 1);
+                r.hp -= 1;
+                for (let k = 0; k < 6; k++) spawnParticle(r.x, r.y, '#38BDF8');
+                if (r.hp <= 0) {
+                  score += 50;
+                  bestScore = Math.max(bestScore, score);
+                  hitstop = 0.03;
+                  beep(220, 0.12, 'square', 0.05);
+                  if (r.r > 20) {
+                    rocks.push(
+                      { x: r.x, y: r.y, vx: -r.vy * 1.2, vy: r.vx * 1.2, r: r.r * 0.58, hp: 1 },
+                      { x: r.x, y: r.y, vx: r.vy * 1.2, vy: -r.vx * 1.2, r: r.r * 0.58, hp: 1 }
+                    );
+                  }
+                  rocks.splice(i, 1);
+                  destroyed = true;
+                  break;
+                }
+              }
+            }
+            if (destroyed) continue;
+
+            // Check ship collision
+            if (ship.invuln <= 0 && Math.hypot(r.x - ship.x, r.y - ship.y) < r.r + 14) {
+              hp = Math.max(0, hp - 25);
+              ship.invuln = 1.0;
+              hitstop = 0.05;
+              beep(130, 0.2, 'sawtooth', 0.08);
+              for (let k = 0; k < 14; k++) spawnParticle(ship.x, ship.y, '#EF4444');
+              if (hp <= 0) {
+                state = 'gameover';
+                document.body.dataset.state = 'gameover';
+                modalTitle.textContent = 'Hull Breached';
+                modalDesc.textContent = `Sector ${sector} · Final Score: ${score} · Best: ${bestScore}`;
+                startBtn.textContent = 'Try Again';
+              }
+            }
+          }
+
+          if (rocks.length === 0) {
+            sector += 1;
+            spawnSectorRocks(4 + sector);
+          }
+
+          scoreEl.textContent = String(score);
+          waveEl.textContent = String(sector);
+          hpEl.textContent = String(hp);
+          dashEl.textContent = ship.dashCd <= 0 ? 'READY' : ship.dashCd.toFixed(1) + 's';
+        }
+
+        for (const p of particles) {
+          if (!p.active) continue;
+          p.x += p.vx * rawDt;
+          p.y += p.vy * rawDt;
+          p.life -= rawDt;
+          if (p.life <= 0) p.active = false;
+        }
+
+        // Render
+        ctx.fillStyle = '#070B14';
+        ctx.fillRect(0, 0, W, H);
+
+        // Rocks
+        ctx.strokeStyle = '#64748B';
+        ctx.fillStyle = '#1E293B';
+        ctx.lineWidth = 2.5;
+        for (const r of rocks) {
+          ctx.beginPath();
+          ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        // Bullets
+        ctx.fillStyle = '#F59E0B';
+        for (const b of bullets) {
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Particles
+        for (const p of particles) {
+          if (!p.active) continue;
+          ctx.fillStyle = p.color;
+          ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+        }
+
+        // Ship
+        ctx.save();
+        ctx.translate(ship.x, ship.y);
+        ctx.rotate(ship.angle);
+        ctx.strokeStyle = ship.invuln > 0 ? '#38BDF8' : '#F59E0B';
+        ctx.fillStyle = '#F8FAFC';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(20, 0);
+        ctx.lineTo(-14, -12);
+        ctx.lineTo(-8, 0);
+        ctx.lineTo(-14, 12);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+
+        if (isHeadless) {
+          setTimeout(() => requestAnimationFrame(frame), 60);
+        } else {
+          requestAnimationFrame(frame);
+        }
+      }
+      requestAnimationFrame(frame);
+    })();
+  </script>
+</body>
+</html>

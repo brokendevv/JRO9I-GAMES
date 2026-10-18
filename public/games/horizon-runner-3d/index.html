@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Horizon Runner 3D</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body { background: #090D16; color: #F8FAFC; font-family: system-ui, sans-serif; overflow: hidden; width: 100vw; height: 100vh; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    #hud { position: fixed; inset: 0; pointer-events: none; padding: 20px 24px; display: flex; justify-content: space-between; align-items: flex-start; z-index: 10; }
+    .cluster { background: rgba(9, 13, 22, 0.86); border: 1px solid rgba(249, 115, 22, 0.35); border-radius: 10px; padding: 10px 18px; display: flex; gap: 24px; }
+    .metric { display: flex; flex-direction: column; }
+    .kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: #94A3B8; }
+    .val { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; color: #F8FAFC; }
+    .val.orange { color: #F97316; }
+    #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(9, 13, 22, 0.84); z-index: 20; }
+    body[data-state="playing"] #overlay { display: none; }
+    .modal { background: #0F172A; border: 1px solid rgba(249, 115, 22, 0.4); border-radius: 16px; padding: 36px 44px; text-align: center; max-width: 440px; }
+    .modal h1 { font-size: 30px; font-weight: 800; margin: 12px 0 8px; }
+    .modal p { font-size: 14px; color: #94A3B8; line-height: 1.5; margin-bottom: 22px; }
+    .cta-btn { background: #F97316; color: #090D16; border: none; border-radius: 10px; padding: 12px 32px; font-size: 15px; font-weight: 800; cursor: pointer; }
+    .hint { margin-top: 16px; font-size: 12px; color: #64748B; }
+  </style>
+</head>
+<body data-state="title">
+  <div id="hud">
+    <div class="cluster">
+      <div class="metric"><span class="kicker">DISTANCE</span><span id="dist-val" class="val orange">0m</span></div>
+      <div class="metric"><span class="kicker">SPEED</span><span id="spd-val" class="val">420</span></div>
+    </div>
+    <div class="cluster">
+      <div class="metric"><span class="kicker">SHIELD</span><span id="hp-val" class="val">100</span></div>
+    </div>
+  </div>
+  <div id="overlay">
+    <div class="modal">
+      <svg viewBox="0 0 80 80" width="58" height="58" aria-hidden="true">
+        <polygon points="40,12 72,62 40,48 8,62" fill="#F97316" stroke="#FFEDD5" stroke-width="2.5"/>
+      </svg>
+      <h1 id="modal-title">Horizon Runner 3D</h1>
+      <p id="modal-desc">Skim across the 3D canyon grid at supersonic speed. Shift lanes to evade monolith barriers and collect overdrive gates.</p>
+      <button id="start-btn" class="cta-btn" data-start="true">Engage Thrusters</button>
+      <div class="hint">A / D or Left / Right Steer · W / Up Overdrive · P Pause</div>
+    </div>
+  </div>
+  <canvas id="canvas"></canvas>
+  <script>
+    (() => {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      const distEl = document.getElementById('dist-val');
+      const spdEl = document.getElementById('spd-val');
+      const hpEl = document.getElementById('hp-val');
+      const startBtn = document.getElementById('start-btn');
+      const modalTitle = document.getElementById('modal-title');
+      const modalDesc = document.getElementById('modal-desc');
+
+      const isHeadless = navigator.webdriver || /HeadlessChrome/i.test(navigator.userAgent);
+      let W = window.innerWidth || 960;
+      let H = window.innerHeight || 540;
+      function resize() { W = window.innerWidth || 960; H = window.innerHeight || 540; canvas.width = W; canvas.height = H; }
+      window.addEventListener('resize', resize);
+      resize();
+
+      let state = 'title';
+      let dist = 0;
+      let hp = 100;
+      let playerX = 0; // -1.5 to 1.5
+      let speed = 420;
+      const obstacles = [];
+      const keys = new Set();
+
+      function resetObstacles() {
+        obstacles.length = 0;
+        for (let i = 1; i <= 8; i++) {
+          obstacles.push({
+            z: i * 160,
+            lane: (Math.floor(Math.random() * 3) - 1) * 0.9,
+            type: i % 4 === 0 ? 'boost' : 'wall'
+          });
+        }
+      }
+
+      function startGame() {
+        state = 'playing';
+        document.body.dataset.state = 'playing';
+        dist = 0;
+        hp = 100;
+        playerX = 0;
+        resetObstacles();
+        startBtn.blur();
+      }
+
+      startBtn.addEventListener('click', startGame);
+      window.addEventListener('keydown', (e) => {
+        keys.add(e.code);
+        if ((state === 'title' || state === 'gameover') && (e.code === 'Enter' || e.code === 'Space')) {
+          startGame();
+        } else if (e.code === 'KeyP' || e.code === 'Escape') {
+          state = state === 'playing' ? 'paused' : 'playing';
+          document.body.dataset.state = state;
+        }
+      });
+      window.addEventListener('keyup', (e) => keys.delete(e.code));
+      if (new URLSearchParams(window.location.search).get('autostart') === '1') startGame();
+      else resetObstacles();
+
+      let last = performance.now();
+      function loop(now) {
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+
+        if (state === 'playing') {
+          const boost = keys.has('KeyW') || keys.has('ArrowUp');
+          speed = boost ? 680 : 440;
+          if (keys.has('KeyA') || keys.has('ArrowLeft')) playerX = Math.max(-1.2, playerX - 2.6 * dt);
+          if (keys.has('KeyD') || keys.has('ArrowRight')) playerX = Math.min(1.2, playerX + 2.6 * dt);
+
+          dist += speed * dt * 0.25;
+
+          for (const ob of obstacles) {
+            ob.z -= speed * dt;
+            if (ob.z < 40 && ob.z > 10) {
+              if (Math.abs(playerX - ob.lane) < 0.42) {
+                if (ob.type === 'boost') {
+                  dist += 150;
+                  ob.z = 1280;
+                } else {
+                  hp = Math.max(0, hp - 34);
+                  ob.z = 1280;
+                  if (hp <= 0) {
+                    state = 'gameover';
+                    document.body.dataset.state = 'gameover';
+                    modalTitle.textContent = 'Run Terminated';
+                    modalDesc.textContent = 'Total Distance Reached: ' + Math.round(dist) + 'm';
+                    startBtn.textContent = 'Race Again';
+                  }
+                }
+              }
+            }
+            if (ob.z <= 5) {
+              ob.z = 1280;
+              ob.lane = (Math.floor(Math.random() * 3) - 1) * 0.9;
+              ob.type = Math.random() < 0.25 ? 'boost' : 'wall';
+            }
+          }
+
+          distEl.textContent = Math.round(dist) + 'm';
+          spdEl.textContent = String(Math.round(speed));
+          hpEl.textContent = String(hp);
+        }
+
+        const horizonY = H * 0.48;
+        ctx.fillStyle = '#090D16';
+        ctx.fillRect(0, 0, W, horizonY);
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(0, horizonY, W, H - horizonY);
+
+        // Sun
+        ctx.fillStyle = '#F97316';
+        ctx.beginPath();
+        ctx.arc(W / 2, horizonY - 20, 72, Math.PI, 0);
+        ctx.fill();
+
+        // 3D Perspective Grid
+        ctx.strokeStyle = 'rgba(249, 115, 22, 0.35)';
+        ctx.lineWidth = 2;
+        for (let i = -4; i <= 4; i++) {
+          ctx.beginPath();
+          ctx.moveTo(W / 2 + i * 25, horizonY);
+          ctx.lineTo(W / 2 + i * 260, H);
+          ctx.stroke();
+        }
+
+        // Obstacles sorted back-to-front
+        const sorted = [...obstacles].sort((a, b) => b.z - a.z);
+        for (const ob of sorted) {
+          const scale = 180 / Math.max(20, ob.z);
+          const sx = W / 2 + (ob.lane - playerX * 0.35) * 320 * scale;
+          const sy = horizonY + (H - horizonY) * Math.min(1, scale * 0.65);
+          const w = 90 * scale;
+          const h = 75 * scale;
+          ctx.fillStyle = ob.type === 'boost' ? '#10B981' : '#EF4444';
+          ctx.fillRect(sx - w / 2, sy - h, w, h);
+        }
+
+        // Player Speeder
+        const px = W / 2 + playerX * 190;
+        const py = H - 72;
+        ctx.fillStyle = '#F8FAFC';
+        ctx.strokeStyle = '#F97316';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(px, py - 28);
+        ctx.lineTo(px + 44, py + 18);
+        ctx.lineTo(px - 44, py + 18);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        if (isHeadless) setTimeout(() => requestAnimationFrame(loop), 60);
+        else requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+    })();
+  </script>
+</body>
+</html>
